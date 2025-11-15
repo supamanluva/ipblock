@@ -109,10 +109,17 @@ BLOCK_COUNTRIES=""
 
 ## Important Notes
 
+⚠️ **CRITICAL SAFETY FEATURES**:
+- Script automatically detects and whitelists your current public IP
+- Whitelist rules are applied FIRST before any blocking rules
+- VPN (10.8.0.0/16) and LAN (192.168.50.0/24) are always allowed
+- If you lose connection, flush rules: `sudo iptables -F INPUT && sudo iptables -F FORWARD`
+
 ⚠️ **WARNING**: This script modifies your firewall rules. Make sure you:
 - Have physical or console access to your server
-- Understand the networks being whitelisted (10.8.0.0/16 and 192.168.50.0/24)
+- Understand the networks being whitelisted
 - Test in a non-production environment first
+- Know how to restore access if something goes wrong
 
 ## Persistence
 

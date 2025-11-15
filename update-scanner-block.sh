@@ -10,12 +10,35 @@ set -e
 
 # Configuration: Add country codes to block (e.g., "cn ru ir kp")
 # Leave empty to disable country blocking
-BLOCK_COUNTRIES=""
+BLOCK_COUNTRIES="cn ru ir"
 
 # Create ipsets if missing
 ipset create scanners hash:net -exist
 ipset create country_block hash:net -exist
 ipset create whitelist hash:net -exist
+
+# -----------------------------
+# Setup whitelist FIRST (critical for safety)
+# -----------------------------
+echo "Setting up whitelist..."
+ipset add whitelist 10.8.0.0/16 -exist
+ipset add whitelist 192.168.50.0/24 -exist
+
+# Detect and add current public IP
+CURRENT_IP=$(curl -s -4 ifconfig.me 2>/dev/null || curl -s -4 icanhazip.com 2>/dev/null || echo "")
+if [ -n "$CURRENT_IP" ]; then
+    echo "Adding current public IP to whitelist (hidden for security)"
+    ipset add whitelist "$CURRENT_IP" -exist
+fi
+
+# Setup whitelist iptables rules FIRST
+iptables -C INPUT -m set --match-set whitelist src -j ACCEPT 2>/dev/null || \
+    iptables -I INPUT 1 -m set --match-set whitelist src -j ACCEPT
+
+iptables -C FORWARD -m set --match-set whitelist src -j ACCEPT 2>/dev/null || \
+    iptables -I FORWARD 1 -m set --match-set whitelist src -j ACCEPT
+
+echo "Whitelist protection active."
 
 # Temporary file
 TMP=$(mktemp)
@@ -102,12 +125,6 @@ cat <<EOF >> "$TMP"
 EOF
 
 # -----------------------------
-# Whitelist VPN + LAN
-# -----------------------------
-ipset add whitelist 10.8.0.0/16 -exist
-ipset add whitelist 192.168.50.0/24 -exist
-
-# -----------------------------
 # Download and load country blocks
 # -----------------------------
 if [ -n "$BLOCK_COUNTRIES" ]; then
@@ -161,25 +178,15 @@ while read -r net; do
 done < "${TMP}.clean"
 
 # -----------------------------
-# Always whitelist VPN/LAN IPs in scanners
+# Setup iptables blocking rules
 # -----------------------------
-ipset add scanners 10.8.0.0/16 -exist
-ipset add scanners 192.168.50.0/24 -exist
+echo "Applying firewall rules..."
 
-# -----------------------------
-# Setup iptables rules safely
-# -----------------------------
-# INPUT
-iptables -C INPUT -m set --match-set whitelist src -j ACCEPT 2>/dev/null || \
-    iptables -I INPUT 1 -m set --match-set whitelist src -j ACCEPT
-
+# INPUT chain - block scanners
 iptables -C INPUT -m set --match-set scanners src -j DROP 2>/dev/null || \
     iptables -A INPUT -m set --match-set scanners src -j DROP
 
-# FORWARD
-iptables -C FORWARD -m set --match-set whitelist src -j ACCEPT 2>/dev/null || \
-    iptables -I FORWARD 1 -m set --match-set whitelist src -j ACCEPT
-
+# FORWARD chain - block scanners
 iptables -C FORWARD -m set --match-set scanners src -j DROP 2>/dev/null || \
     iptables -A FORWARD -m set --match-set scanners src -j DROP
 
