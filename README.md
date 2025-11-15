@@ -58,16 +58,38 @@ sudo ./update-scanner-block.sh
 ## What This Script Does
 
 1. **Creates ipsets** for scanners, country blocking, and whitelist
-2. **Downloads** FireHOL IP blocklists (Levels 1, 2, and 3)
-3. **Downloads country-specific IP blocks** (optional, configurable)
-4. **Adds static scanner ranges** to the blocklist
-5. **Whitelists** your VPN (10.8.0.0/16) and LAN (192.168.50.0/24) networks
-6. **Deduplicates and cleans** IP entries
-7. **Updates firewall rules** to:
+2. **Sets up connection tracking** - allows all established/related connections (critical!)
+3. **Downloads** FireHOL IP blocklists (Levels 1, 2, and 3)
+4. **Downloads country-specific IP blocks** (optional, configurable)
+5. **Adds static scanner ranges** to the blocklist
+6. **Whitelists** your current public IP, VPN (10.8.0.0/16) and LAN (192.168.50.0/24) networks
+7. **Deduplicates and cleans** IP entries
+8. **Updates firewall rules** to:
+   - Allow all ESTABLISHED and RELATED connections (your outbound traffic responses)
+   - Allow localhost traffic
    - Allow whitelisted IPs
-   - Block scanner IPs in INPUT chain
-   - Block scanner IPs in FORWARD chain (both src and dst)
-   - Block country IPs (if configured)
+   - Block **only NEW** incoming connections from scanners (not responses to your requests)
+   - Optionally block country IPs (if configured)
+
+### Block Modes
+
+Edit the `BLOCK_MODE` variable in the script:
+
+- **`disabled`** - Downloads and loads blocklists but doesn't apply any firewall rules (for testing)
+- **`incoming`** (default) - Blocks NEW incoming connections only. Safe for workstations.
+- **`router`** - Blocks both incoming and forwarding. Use on routers/gateways/firewalls.
+
+### Logging
+
+Set `ENABLE_LOGGING="yes"` in the script to log blocked packets. View logs with:
+```bash
+sudo dmesg | grep "SCANNER-BLOCKED"
+```
+
+Or monitor in real-time:
+```bash
+sudo tail -f /var/log/kern.log | grep "SCANNER-BLOCKED"
+```
 
 ## Country Blocking Feature
 
