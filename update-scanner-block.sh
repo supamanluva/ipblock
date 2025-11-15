@@ -10,7 +10,16 @@ set -e
 
 # Configuration: Add country codes to block (e.g., "cn ru ir kp")
 # Leave empty to disable country blocking
-BLOCK_COUNTRIES="cn ru ir"
+BLOCK_COUNTRIES=""
+
+# Block Mode:
+# "disabled" - Load lists but don't apply blocking (testing mode)
+# "incoming" - Block only NEW incoming connections (safe for workstations)
+# "router" - Block both incoming and forwarding (for routers/gateways)
+BLOCK_MODE="incoming"
+
+# Enable logging for debugging (logs blocked packets to /var/log/kern.log)
+ENABLE_LOGGING="yes"
 
 # Create ipsets if missing
 ipset create scanners hash:net -exist
@@ -32,8 +41,17 @@ if [ -n "$CURRENT_IP" ]; then
 fi
 
 # Setup whitelist iptables rules FIRST
+# Allow all established and related connections (critical for outbound traffic responses)
+iptables -C INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || \
+    iptables -I INPUT 1 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+# Allow localhost
+iptables -C INPUT -i lo -j ACCEPT 2>/dev/null || \
+    iptables -I INPUT 2 -i lo -j ACCEPT
+
+# Whitelist trusted networks
 iptables -C INPUT -m set --match-set whitelist src -j ACCEPT 2>/dev/null || \
-    iptables -I INPUT 1 -m set --match-set whitelist src -j ACCEPT
+    iptables -I INPUT 3 -m set --match-set whitelist src -j ACCEPT
 
 iptables -C FORWARD -m set --match-set whitelist src -j ACCEPT 2>/dev/null || \
     iptables -I FORWARD 1 -m set --match-set whitelist src -j ACCEPT
@@ -180,29 +198,46 @@ done < "${TMP}.clean"
 # -----------------------------
 # Setup iptables blocking rules
 # -----------------------------
-echo "Applying firewall rules..."
+if [ "$BLOCK_MODE" = "disabled" ]; then
+    echo "BLOCK_MODE=disabled - Lists loaded but no firewall rules applied"
+else
+    echo "Applying firewall rules (BLOCK_MODE=$BLOCK_MODE, LOGGING=$ENABLE_LOGGING)..."
+    
+    # INPUT chain - block NEW incoming connections from scanners only
+    # ESTABLISHED,RELATED connections are already allowed above
+    
+    # Add logging rule if enabled
+    if [ "$ENABLE_LOGGING" = "yes" ]; then
+        iptables -C INPUT -m set --match-set scanners src -m conntrack --ctstate NEW -j LOG --log-prefix "SCANNER-BLOCKED: " --log-level 4 2>/dev/null || \
+            iptables -A INPUT -m set --match-set scanners src -m conntrack --ctstate NEW -j LOG --log-prefix "SCANNER-BLOCKED: " --log-level 4
+    fi
+    
+    iptables -C INPUT -m set --match-set scanners src -m conntrack --ctstate NEW -j DROP 2>/dev/null || \
+        iptables -A INPUT -m set --match-set scanners src -m conntrack --ctstate NEW -j DROP
 
-# INPUT chain - block scanners
-iptables -C INPUT -m set --match-set scanners src -j DROP 2>/dev/null || \
-    iptables -A INPUT -m set --match-set scanners src -j DROP
+    # FORWARD chain - block routed traffic (for routers/gateways)
+    if [ "$BLOCK_MODE" = "router" ]; then
+        iptables -C FORWARD -m set --match-set scanners src -j DROP 2>/dev/null || \
+            iptables -A FORWARD -m set --match-set scanners src -j DROP
 
-# FORWARD chain - block scanners
-iptables -C FORWARD -m set --match-set scanners src -j DROP 2>/dev/null || \
-    iptables -A FORWARD -m set --match-set scanners src -j DROP
+        iptables -C FORWARD -m set --match-set scanners dst -j DROP 2>/dev/null || \
+            iptables -A FORWARD -m set --match-set scanners dst -j DROP
+    fi
 
-iptables -C FORWARD -m set --match-set scanners dst -j DROP 2>/dev/null || \
-    iptables -A FORWARD -m set --match-set scanners dst -j DROP
+    # Country blocking rules (if enabled)
+    if [ -n "$BLOCK_COUNTRIES" ]; then
+        iptables -C INPUT -m set --match-set country_block src -m conntrack --ctstate NEW -j DROP 2>/dev/null || \
+            iptables -A INPUT -m set --match-set country_block src -m conntrack --ctstate NEW -j DROP
 
-# Country blocking rules (if enabled)
-if [ -n "$BLOCK_COUNTRIES" ]; then
-    iptables -C INPUT -m set --match-set country_block src -j DROP 2>/dev/null || \
-        iptables -A INPUT -m set --match-set country_block src -j DROP
+        # FORWARD chain country blocking (for routers/gateways)
+        if [ "$BLOCK_MODE" = "router" ]; then
+            iptables -C FORWARD -m set --match-set country_block src -j DROP 2>/dev/null || \
+                iptables -A FORWARD -m set --match-set country_block src -j DROP
 
-    iptables -C FORWARD -m set --match-set country_block src -j DROP 2>/dev/null || \
-        iptables -A FORWARD -m set --match-set country_block src -j DROP
-
-    iptables -C FORWARD -m set --match-set country_block dst -j DROP 2>/dev/null || \
-        iptables -A FORWARD -m set --match-set country_block dst -j DROP
+            iptables -C FORWARD -m set --match-set country_block dst -j DROP 2>/dev/null || \
+                iptables -A FORWARD -m set --match-set country_block dst -j DROP
+        fi
+    fi
 fi
 
 # -----------------------------
