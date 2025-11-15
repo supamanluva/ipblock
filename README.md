@@ -26,14 +26,30 @@ This script must be run with **root privileges** because it:
 - Modifies iptables firewall rules
 - Flushes existing firewall configurations
 
-## How to Run
+## Installation
 
-### Option 1: Run with sudo
+### Install to System Path (Recommended)
+
+For easier execution and cron automation, install the script to `/usr/local/bin/`:
+
+```bash
+sudo cp update-scanner-block.sh /usr/local/bin/update-scanner-blocklist.sh
+sudo chmod +x /usr/local/bin/update-scanner-blocklist.sh
+```
+
+Then you can run it from anywhere:
+```bash
+sudo update-scanner-blocklist.sh
+```
+
+### Alternative: Run from Current Directory
+
+#### Option 1: Run with sudo
 ```bash
 sudo bash update-scanner-block.sh
 ```
 
-### Option 2: Make executable and run
+#### Option 2: Make executable and run
 ```bash
 chmod +x update-scanner-block.sh
 sudo ./update-scanner-block.sh
@@ -118,28 +134,44 @@ sudo service netfilter-persistent save
 
 **RECOMMENDED**: Run this script at least once per week to keep blocklists up-to-date. FireHOL and IPDeny lists are regularly updated with new threats and country IP ranges.
 
-To run this script automatically, add it to crontab:
+### Setup Instructions
 
-```bash
-sudo crontab -e
-```
+1. **Install script to system path** (if not already done):
+   ```bash
+   sudo cp update-scanner-block.sh /usr/local/bin/update-scanner-blocklist.sh
+   sudo chmod +x /usr/local/bin/update-scanner-blocklist.sh
+   ```
+
+2. **Open root crontab**:
+   ```bash
+   sudo crontab -e
+   ```
+
+3. **Add one of the schedules below** to the crontab file:
 
 **Recommended schedules:**
 
 Run weekly (Sundays at 3 AM):
 ```
-0 3 * * 0 /home/rae/ipblock/update-scanner-block.sh >> /var/log/scanner-block.log 2>&1
+0 3 * * 0 /usr/local/bin/update-scanner-blocklist.sh >> /var/log/scanner-block.log 2>&1
 ```
 
 Run daily at 3 AM (for high-security environments):
 ```
-0 3 * * * /home/rae/ipblock/update-scanner-block.sh >> /var/log/scanner-block.log 2>&1
+0 3 * * * /usr/local/bin/update-scanner-blocklist.sh >> /var/log/scanner-block.log 2>&1
 ```
 
 Run twice weekly (Sunday and Wednesday at 3 AM):
 ```
-0 3 * * 0,3 /home/rae/ipblock/update-scanner-block.sh >> /var/log/scanner-block.log 2>&1
+0 3 * * 0,3 /usr/local/bin/update-scanner-blocklist.sh >> /var/log/scanner-block.log 2>&1
 ```
+
+4. **Save and exit** the crontab editor (in nano: `Ctrl+X`, then `Y`, then `Enter`)
+
+5. **Verify crontab is set**:
+   ```bash
+   sudo crontab -l
+   ```
 
 ## Troubleshooting
 
