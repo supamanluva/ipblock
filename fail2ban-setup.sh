@@ -156,7 +156,7 @@ findtime = 60
 bantime = 86400
 
 [http-scanner]
-enabled = true  
+enabled = false
 filter = http-scanner
 logpath = /var/log/nginx/access.log
           /var/log/apache2/access.log
@@ -189,8 +189,9 @@ if [ -d /var/log/nginx ]; then
     sed -i '/^\[nginx-http-auth\]/,/^\[/ s/enabled = false/enabled = true/' /etc/fail2ban/jail.local
     sed -i '/^\[nginx-botsearch\]/,/^\[/ s/enabled = false/enabled = true/' /etc/fail2ban/jail.local
     sed -i '/^\[nginx-limit-req\]/,/^\[/ s/enabled = false/enabled = true/' /etc/fail2ban/jail.local
-    # Enable http-hammer with nginx logs
+    # Enable http-hammer and http-scanner with nginx logs
     sed -i '/^\[http-hammer\]/,/^\[/ s/enabled = false/enabled = true/' /etc/fail2ban/jail.local
+    sed -i '/^\[http-scanner\]/,/^\[/ s/enabled = false/enabled = true/' /etc/fail2ban/jail.local
     echo "  ✓ nginx jails enabled"
 fi
 
@@ -199,10 +200,12 @@ if [ -d /var/log/apache2 ]; then
     echo "  Enabling apache jails..."
     sed -i '/^\[apache-auth\]/,/^\[/ s/enabled = false/enabled = true/' /etc/fail2ban/jail.local
     sed -i '/^\[apache-badbots\]/,/^\[/ s/enabled = false/enabled = true/' /etc/fail2ban/jail.local
-    # Update http-hammer to use apache logs if nginx not present
+    # Update http-hammer and http-scanner to use apache logs if nginx not present
     if [ ! -d /var/log/nginx ]; then
         sed -i '/^\[http-hammer\]/,/^\[/ s/enabled = false/enabled = true/' /etc/fail2ban/jail.local
         sed -i '/^\[http-hammer\]/,/^\[/ s|/var/log/nginx/access.log|/var/log/apache2/access.log|' /etc/fail2ban/jail.local
+        sed -i '/^\[http-scanner\]/,/^\[/ s/enabled = false/enabled = true/' /etc/fail2ban/jail.local
+        sed -i '/^\[http-scanner\]/,/^\[/ s|/var/log/nginx/access.log|/var/log/apache2/access.log|' /etc/fail2ban/jail.local
     fi
     echo "  ✓ apache jails enabled"
 fi
