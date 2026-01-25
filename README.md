@@ -237,3 +237,232 @@ curl -s http://iplists.firehol.org/files/firehol_anonymous.netset >> "$TMP"
 echo "Downloading FireHOL Webserver..."
 curl -s http://iplists.firehol.org/files/firehol_webserver.netset >> "$TMP"
 ```
+
+---
+
+## Rate Limiting & Hammering Protection
+
+In addition to static blocklists, this project includes **dynamic rate limiting** to detect and block IPs that hammer your server. Three layers of protection work together:
+
+### Quick Install
+
+```bash
+sudo ./install-rate-limiting.sh
+```
+
+This installs all three protection layers with sensible defaults.
+
+### Layer 1: iptables Rate Limiting (Kernel-Level)
+
+Real-time protection using iptables modules. No log parsing needed.
+
+**Script**: `rate-limit-iptables.sh`
+
+**Features**:
+- **Recent module**: Max 30 new connections/minute per IP
+- **Connlimit**: Max 50 concurrent connections per IP
+- **Hashlimit**: Sophisticated rate limiting with burst protection
+
+### Layer 2: Log-Based Rate Limiting
+
+Analyzes web server logs to detect and block IPs making excessive requests.
+
+**Script**: `log-rate-limiter.sh`
+
+**Features**:
+- Monitors nginx/Apache access logs
+- 3-strike system before blocking
+- Configurable thresholds (default: 100 requests/minute)
+- 24-hour blocks via `rate_limited` ipset
+
+### Layer 3: fail2ban Integration
+
+Advanced protection with regex-based log analysis.
+
+**Script**: `fail2ban-setup.sh`
+
+---
+
+## Port Scan Detection
+
+Automatically detects and **permanently blocks** IPs performing port scans against your server.
+
+### Setup
+
+```bash
+sudo ./portscan-detect.sh
+```
+
+### Detection Methods
+
+1. **PSD (Port Scan Detection) Module** - Detects rapid port probing
+2. **Recent Module** - Tracks connection attempts, blocks after threshold
+3. **Honeypot Ports** - Instant permanent ban for connecting to:
+   - 23 (Telnet), 135/137-139/445 (Windows/SMB)
+   - 1433/1434 (MSSQL), 3306 (MySQL), 5432 (PostgreSQL)
+   - 3389 (RDP), 5900 (VNC), 6379 (Redis)
+   - 11211 (Memcached), 27017 (MongoDB)
+4. **Stealth Scan Detection** - NULL, XMAS, SYN/FIN packets
+
+### Log Analyzer
+
+Runs via cron to catch patterns the iptables rules miss:
+
+```bash
+echo "*/10 * * * * root /path/to/portscan-log-analyzer.sh" | sudo tee /etc/cron.d/portscan-analyzer
+```
+
+### View Port Scan Blocks
+
+```bash
+# All permanently blocked scanners
+sudo ipset list portscan_blocked
+
+# Recent detections
+sudo dmesg | grep -E 'PORTSCAN|HONEYPOT|STEALTH' | tail -20
+```
+
+---
+
+## Quick Command Reference
+
+### View All Blocked IPs
+
+```bash
+# Show everything with the nice script
+sudo ./show-blocked.sh
+
+# Or manually check each ipset
+sudo ipset list scanners          # FireHOL blocklists
+sudo ipset list country_block     # Country blocks
+sudo ipset list portscan_blocked  # Port scanners (permanent)
+sudo ipset list rate_limited      # HTTP hammering (24h)
+sudo ipset list fail2ban          # Brute force (24h)
+```
+
+### Block/Unblock IPs Manually
+
+```bash
+# Add IP to scanner block (permanent)
+sudo ipset add scanners 1.2.3.4
+
+# Add IP to port scan block (permanent)
+sudo ipset add portscan_blocked 1.2.3.4
+
+# Remove an IP
+sudo ipset del scanners 1.2.3.4
+sudo ipset del portscan_blocked 1.2.3.4
+
+# Whitelist an IP (never blocked)
+sudo ipset add whitelist 1.2.3.4
+```
+
+### Check If IP Is Blocked
+
+```bash
+# Test specific IP
+sudo ipset test scanners 1.2.3.4
+sudo ipset test portscan_blocked 1.2.3.4
+
+# Search all ipsets for an IP
+for set in scanners country_block portscan_blocked rate_limited fail2ban whitelist; do
+  sudo ipset test $set 1.2.3.4 2>/dev/null && echo "Found in: $set"
+done
+```
+
+### Monitor Live Blocks
+
+```bash
+# Watch for new blocks
+sudo dmesg -w | grep -E 'SCANNER-BLOCK|PORTSCAN|HONEYPOT|RATE-LIMITED'
+
+# Recent iptables activity
+sudo iptables -L -n -v | head -50
+```
+
+### fail2ban Commands
+
+```bash
+fail2ban-client status              # All jails
+fail2ban-client status sshd         # SSH jail
+fail2ban-client set sshd banip IP   # Manual ban
+fail2ban-client set sshd unbanip IP # Manual unban
+```
+
+---
+
+## All Scripts Reference
+
+| Script | Purpose |
+|--------|---------|
+| `update-scanner-block.sh` | Download and apply FireHOL blocklists |
+| `portscan-detect.sh` | Setup port scan detection rules |
+| `portscan-log-analyzer.sh` | Analyze logs for scan patterns (cron) |
+| `rate-limit-iptables.sh` | Setup iptables rate limiting |
+| `log-rate-limiter.sh` | Analyze logs for hammering (cron) |
+| `fail2ban-setup.sh` | Install and configure fail2ban |
+| `install-rate-limiting.sh` | Master installer for rate limiting |
+| `show-blocked.sh` | Display all blocked IPs |
+| `check-blocking-status.sh` | Check firewall status |
+| `test-country-block.sh` | Test country blocking |
+
+---
+
+## ipset Summary
+
+| ipset Name | Purpose | Timeout | Source |
+|------------|---------|---------|--------|
+| `scanners` | FireHOL + static IPs | Permanent | `update-scanner-block.sh` |
+| `country_block` | Country IP ranges | Permanent | `update-scanner-block.sh` |
+| `rate_limited` | HTTP hammering | 24 hours | `log-rate-limiter.sh` |
+| `fail2ban` | Brute force attacks | 24 hours | fail2ban |
+| `portscan_blocked` | Port scanners | **Permanent** | `portscan-detect.sh` |
+| `whitelist` | Never blocked | Permanent | `update-scanner-block.sh` |
+
+---
+
+## Cron Jobs
+
+```bash
+# /etc/cron.d/ipblock-persist - Persistence across reboots
+0 * * * * root ipset save portscan_blocked > /etc/ipblock/portscan_blocked.save
+@reboot root sleep 10 && /home/rae/ipblock/portscan-detect.sh
+
+# Recommended: weekly blocklist update
+0 3 * * 0 /home/rae/ipblock/update-scanner-block.sh >> /var/log/scanner-block.log 2>&1
+```
+
+---
+
+## Verify Setup
+
+After installation, run the verification script to ensure everything is configured correctly:
+
+```bash
+sudo ./verify-setup.sh
+```
+
+This checks:
+- ✓ Required tools (ipset, iptables, curl)
+- ✓ All ipset tables exist and have entries
+- ✓ iptables rules are active
+- ✓ Cron jobs for persistence
+- ✓ Recent blocking activity
+- ✓ Quick stats summary
+
+Example output:
+```
+═══ ipset Tables ═══
+  ✓ scanners exists (45000 entries)
+  ✓ portscan_blocked exists - permanent (12 entries)
+  ✓ whitelist exists (5 entries)
+
+═══ Quick Stats ═══
+  Total IPs/ranges blocked: 45017
+  
+  Passed:  15
+  Warnings: 2
+  Failed:  0
+
+⚠ Setup is functional with some optional features missing.
+```
