@@ -106,29 +106,31 @@ findtime = 86400
 # -----------------------------
 # Web Server Protection
 # -----------------------------
+# Note: These jails auto-detect based on log file presence
+
 [nginx-http-auth]
-enabled = true
+enabled = false
 filter = nginx-http-auth
 logpath = /var/log/nginx/error.log
 maxretry = 3
 bantime = 86400
 
 [nginx-botsearch]
-enabled = true
+enabled = false
 filter = nginx-botsearch
 logpath = /var/log/nginx/access.log
 maxretry = 2
 bantime = 86400
 
 [nginx-limit-req]
-enabled = true
+enabled = false
 filter = nginx-limit-req
 logpath = /var/log/nginx/error.log
 maxretry = 5
 findtime = 60
 bantime = 86400
 
-# Apache jails (enable if using Apache)
+# Apache jails
 [apache-auth]
 enabled = false
 filter = apache-auth
@@ -145,7 +147,7 @@ maxretry = 2
 # Custom: Hammering Detection
 # -----------------------------
 [http-hammer]
-enabled = true
+enabled = false
 filter = http-hammer
 logpath = /var/log/nginx/access.log
           /var/log/apache2/access.log
@@ -177,6 +179,37 @@ maxretry = 3
 EOF
 
 echo "✓ Created jail.local configuration"
+
+# Auto-enable jails based on installed services
+echo "Detecting installed services..."
+
+# Enable nginx jails if nginx is installed and logs exist
+if [ -d /var/log/nginx ]; then
+    echo "  Enabling nginx jails..."
+    sed -i '/^\[nginx-http-auth\]/,/^\[/ s/enabled = false/enabled = true/' /etc/fail2ban/jail.local
+    sed -i '/^\[nginx-botsearch\]/,/^\[/ s/enabled = false/enabled = true/' /etc/fail2ban/jail.local
+    sed -i '/^\[nginx-limit-req\]/,/^\[/ s/enabled = false/enabled = true/' /etc/fail2ban/jail.local
+    # Enable http-hammer with nginx logs
+    sed -i '/^\[http-hammer\]/,/^\[/ s/enabled = false/enabled = true/' /etc/fail2ban/jail.local
+    echo "  ✓ nginx jails enabled"
+fi
+
+# Enable apache jails if apache is installed and logs exist
+if [ -d /var/log/apache2 ]; then
+    echo "  Enabling apache jails..."
+    sed -i '/^\[apache-auth\]/,/^\[/ s/enabled = false/enabled = true/' /etc/fail2ban/jail.local
+    sed -i '/^\[apache-badbots\]/,/^\[/ s/enabled = false/enabled = true/' /etc/fail2ban/jail.local
+    # Update http-hammer to use apache logs if nginx not present
+    if [ ! -d /var/log/nginx ]; then
+        sed -i '/^\[http-hammer\]/,/^\[/ s/enabled = false/enabled = true/' /etc/fail2ban/jail.local
+        sed -i '/^\[http-hammer\]/,/^\[/ s|/var/log/nginx/access.log|/var/log/apache2/access.log|' /etc/fail2ban/jail.local
+    fi
+    echo "  ✓ apache jails enabled"
+fi
+
+if [ ! -d /var/log/nginx ] && [ ! -d /var/log/apache2 ]; then
+    echo "  ℹ No web server logs found - HTTP jails disabled"
+fi
 
 # Create custom filters
 mkdir -p /etc/fail2ban/filter.d
