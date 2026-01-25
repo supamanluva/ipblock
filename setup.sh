@@ -189,7 +189,16 @@ ipset save > /etc/ipblock/ipset.rules 2>/dev/null || true
 # Save iptables
 netfilter-persistent save 2>/dev/null || iptables-save > /etc/iptables/rules.v4 2>/dev/null || true
 
+# Create persistence cron job
+cat > /etc/cron.d/ipblock-persist << EOF
+# Save ipsets hourly and restore on reboot
+0 * * * * root ipset save > /etc/ipblock/ipset.rules 2>/dev/null
+@reboot root sleep 30 && ipset restore < /etc/ipblock/ipset.rules 2>/dev/null && $SCRIPT_DIR/portscan-detect.sh >> /var/log/portscan.log 2>&1
+EOF
+chmod 644 /etc/cron.d/ipblock-persist
+
 echo -e "  ${GREEN}✓${NC} Rules saved"
+echo -e "  ${GREEN}✓${NC} Persistence cron job created"
 
 # -----------------------------
 # Setup Cron for Daily Updates
