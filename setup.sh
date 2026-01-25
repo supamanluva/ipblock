@@ -192,17 +192,17 @@ netfilter-persistent save 2>/dev/null || iptables-save > /etc/iptables/rules.v4 
 echo -e "  ${GREEN}✓${NC} Rules saved"
 
 # -----------------------------
-# Setup Cron for Weekly Updates
+# Setup Cron for Daily Updates
 # -----------------------------
 echo ""
-echo -e "${YELLOW}Setting up weekly blocklist updates...${NC}"
+echo -e "${YELLOW}Setting up daily blocklist updates...${NC}"
 
-WEEKLY_CRON="0 3 * * 0 root /usr/local/bin/update-scanner-blocklist >> /var/log/scanner-block.log 2>&1"
-WEEKLY_CRON_FILE="/etc/cron.d/scanner-blocklist-update"
-echo "$WEEKLY_CRON" > "$WEEKLY_CRON_FILE"
-chmod 644 "$WEEKLY_CRON_FILE"
+DAILY_CRON="0 2 * * * root /usr/local/bin/update-scanner-blocklist >> /var/log/scanner-block.log 2>&1"
+DAILY_CRON_FILE="/etc/cron.d/scanner-blocklist-update"
+echo "$DAILY_CRON" > "$DAILY_CRON_FILE"
+chmod 644 "$DAILY_CRON_FILE"
 
-echo -e "  ${GREEN}✓${NC} Weekly cron job created (Sundays at 3 AM)"
+echo -e "  ${GREEN}✓${NC} Daily cron job created (02:00 every day)"
 
 # -----------------------------
 # Summary
