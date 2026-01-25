@@ -195,7 +195,7 @@ cat > /etc/fail2ban/filter.d/http-scanner.conf << 'EOF'
 # Detect vulnerability scanning and suspicious path access
 [Definition]
 failregex = ^<HOST> -.*"(GET|POST).*(\.php|\.asp|\.env|\.git|wp-admin|wp-login|phpmyadmin|admin|config|backup|shell|eval|passwd|\.sql|\.bak|\.zip|\.tar|xmlrpc).*" (400|401|403|404|405|500)
-            ^<HOST> -.*"(GET|POST).*(\.\./|%2e%2e|%00|union.*select|<script|javascript:|data:).*"
+            ^<HOST> -.*"(GET|POST).*(\.\.\/|%%2e%%2e|%%00|union.*select|<script|javascript:|data:).*"
 ignoreregex =
 datepattern = %%d/%%b/%%Y:%%H:%%M:%%S
 EOF
