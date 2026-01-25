@@ -1,4 +1,47 @@
-# Scanner Blocklist Updater
+# IP Block - Complete Server Protection
+
+Multi-layer IP blocking and intrusion prevention for Linux servers.
+
+## Quick Start
+
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/ipblock.git
+cd ipblock
+
+# Run the master setup script
+sudo ./setup.sh
+```
+
+That's it! The setup script will:
+- Install prerequisites (ipset, iptables)
+- Download and apply scanner blocklists (FireHOL Level 1-3)
+- Configure port scan detection with honeypot traps
+- Set up kernel-level rate limiting
+- Install log-based rate limiter (cron-based, 3-strike system)
+- Optionally configure fail2ban
+- Set up weekly automatic updates
+- Save rules for persistence across reboots
+
+---
+
+## What's Protected
+
+| Layer | Protection | Response |
+|-------|------------|----------|
+| Scanner Blocklists | Known malicious IPs | Instant block |
+| Country Blocking | Geographic filtering | Instant block |
+| Port Scan Detection | Honeypot traps | **Permanent ban** |
+| Rate Limiting | Connection floods | Temp block (24h) |
+| fail2ban | Brute force attacks | Temp block (24h) |
+
+---
+
+## Manual Setup
+
+If you prefer to set up components individually:
+
+### Prerequisites
 
 ## Prerequisites
 
@@ -395,16 +438,18 @@ fail2ban-client set sshd unbanip IP # Manual unban
 
 | Script | Purpose |
 |--------|---------|
+| `setup.sh` | **Master setup - run this first!** |
 | `update-scanner-block.sh` | Download and apply FireHOL blocklists |
 | `portscan-detect.sh` | Setup port scan detection rules |
 | `portscan-log-analyzer.sh` | Analyze logs for scan patterns (cron) |
 | `rate-limit-iptables.sh` | Setup iptables rate limiting |
 | `log-rate-limiter.sh` | Analyze logs for hammering (cron) |
 | `fail2ban-setup.sh` | Install and configure fail2ban |
-| `install-rate-limiting.sh` | Master installer for rate limiting |
+| `install-rate-limiting.sh` | Installer for rate limiting only |
 | `show-blocked.sh` | Display all blocked IPs |
 | `check-blocking-status.sh` | Check firewall status |
 | `test-country-block.sh` | Test country blocking |
+| `verify-setup.sh` | Verify setup is complete |
 
 ---
 
