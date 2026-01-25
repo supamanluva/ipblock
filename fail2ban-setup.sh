@@ -220,13 +220,32 @@ echo "✓ Added iptables rule for fail2ban ipset"
 
 # Restart fail2ban
 systemctl enable fail2ban
-systemctl restart fail2ban
+
+# Stop first if running (ignore errors)
+systemctl stop fail2ban 2>/dev/null || true
+sleep 1
+
+# Start fresh
+systemctl start fail2ban
+
+# Wait for fail2ban to be ready
+echo "Waiting for fail2ban to start..."
+for i in {1..10}; do
+    if fail2ban-client ping &>/dev/null; then
+        break
+    fi
+    sleep 1
+done
 
 echo ""
 echo "=== fail2ban Setup Complete ==="
 echo ""
 echo "Status:"
-fail2ban-client status
+if fail2ban-client ping &>/dev/null; then
+    fail2ban-client status
+else
+    echo "fail2ban is starting up... check status with: fail2ban-client status"
+fi
 
 echo ""
 echo "Useful commands:"
