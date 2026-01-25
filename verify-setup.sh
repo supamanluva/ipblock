@@ -57,7 +57,8 @@ section "ipset Tables"
 
 for ipset_name in scanners whitelist; do
     if ipset list "$ipset_name" &>/dev/null; then
-        count=$(ipset list "$ipset_name" 2>/dev/null | grep -c "^[0-9]" || echo "0")
+        count=$(ipset list "$ipset_name" 2>/dev/null | grep -c "^[0-9]" 2>/dev/null || true)
+        count=${count:-0}
         pass "$ipset_name exists ($count entries)"
     else
         fail "$ipset_name not found - run update-scanner-block.sh"
@@ -65,7 +66,8 @@ for ipset_name in scanners whitelist; do
 done
 
 if ipset list portscan_blocked &>/dev/null; then
-    count=$(ipset list portscan_blocked 2>/dev/null | grep -c "^[0-9]" || echo "0")
+    count=$(ipset list portscan_blocked 2>/dev/null | grep -c "^[0-9]" 2>/dev/null || true)
+    count=${count:-0}
     if ipset list portscan_blocked 2>/dev/null | head -5 | grep -q "timeout"; then
         warn "portscan_blocked has timeout (should be permanent)"
     else
@@ -76,7 +78,8 @@ else
 fi
 
 if ipset list country_block &>/dev/null; then
-    count=$(ipset list country_block 2>/dev/null | grep -c "^[0-9]" || echo "0")
+    count=$(ipset list country_block 2>/dev/null | grep -c "^[0-9]" 2>/dev/null || true)
+    count=${count:-0}
     pass "country_block exists ($count entries)"
 else
     info "country_block not found (optional)"
@@ -84,7 +87,8 @@ fi
 
 for ipset_name in rate_limited fail2ban; do
     if ipset list "$ipset_name" &>/dev/null; then
-        count=$(ipset list "$ipset_name" 2>/dev/null | grep -c "^[0-9]" || echo "0")
+        count=$(ipset list "$ipset_name" 2>/dev/null | grep -c "^[0-9]" 2>/dev/null || true)
+        count=${count:-0}
         pass "$ipset_name exists ($count entries)"
     else
         info "$ipset_name not found (optional)"
@@ -185,7 +189,8 @@ echo ""
 total_blocked=0
 for ipset_name in scanners country_block portscan_blocked rate_limited fail2ban; do
     if ipset list "$ipset_name" &>/dev/null 2>&1; then
-        count=$(ipset list "$ipset_name" 2>/dev/null | grep -c "^[0-9]" || echo "0")
+        count=$(ipset list "$ipset_name" 2>/dev/null | grep -c "^[0-9]" 2>/dev/null || true)
+        count=${count:-0}
         total_blocked=$((total_blocked + count))
     fi
 done
