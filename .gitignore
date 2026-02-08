@@ -1,7 +1,0 @@
-*.log
-*.log.*
-.DS_Store
-.vscode/
-*.swp
-*.swo
-*~
