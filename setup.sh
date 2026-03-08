@@ -102,10 +102,23 @@ else
 fi
 
 # -----------------------------
-# Step 5: Log-Based Rate Limiter
+# Step 5: Docker Port Filtering
 # -----------------------------
 echo ""
-echo -e "${YELLOW}[5/7] Setting up log-based rate limiter...${NC}"
+echo -e "${YELLOW}[5/8] Setting up Docker port filtering...${NC}"
+
+if [ -f "$SCRIPT_DIR/docker-port-filter.sh" ]; then
+    bash "$SCRIPT_DIR/docker-port-filter.sh"
+    echo -e "  ${GREEN}✓${NC} Docker port filtering active"
+else
+    echo -e "  ${YELLOW}⚠${NC} docker-port-filter.sh not found, skipping"
+fi
+
+# -----------------------------
+# Step 6: Log-Based Rate Limiter
+# -----------------------------
+echo ""
+echo -e "${YELLOW}[6/8] Setting up log-based rate limiter...${NC}"
 
 # Create state directory
 mkdir -p /var/lib/ipblock
@@ -133,10 +146,10 @@ else
 fi
 
 # -----------------------------
-# Step 6: fail2ban (Optional)
+# Step 7: fail2ban (Optional)
 # -----------------------------
 echo ""
-echo -e "${YELLOW}[6/7] fail2ban setup...${NC}"
+echo -e "${YELLOW}[7/8] fail2ban setup...${NC}"
 
 if [ -f "$SCRIPT_DIR/fail2ban-setup.sh" ]; then
     read -p "  Install and configure fail2ban? (y/n): " -n 1 -r
@@ -152,15 +165,22 @@ else
 fi
 
 # -----------------------------
-# Step 7: Install to System Path
+# Step 8: Install to System Path
 # -----------------------------
 echo ""
-echo -e "${YELLOW}[7/7] Installing scripts to system path...${NC}"
+echo -e "${YELLOW}[8/8] Installing scripts to system path...${NC}"
 
 # Main blocklist updater
 cp "$SCRIPT_DIR/update-scanner-block.sh" /usr/local/bin/update-scanner-blocklist
 chmod +x /usr/local/bin/update-scanner-blocklist
 echo -e "  ${GREEN}✓${NC} update-scanner-blocklist → /usr/local/bin/"
+
+# Docker port filter
+if [ -f "$SCRIPT_DIR/docker-port-filter.sh" ]; then
+    cp "$SCRIPT_DIR/docker-port-filter.sh" /usr/local/bin/docker-port-filter
+    chmod +x /usr/local/bin/docker-port-filter
+    echo -e "  ${GREEN}✓${NC} docker-port-filter → /usr/local/bin/"
+fi
 
 # Show blocked utility
 if [ -f "$SCRIPT_DIR/show-blocked.sh" ]; then

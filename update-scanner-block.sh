@@ -268,6 +268,14 @@ else
         # Allow everything else
         iptables -A DOCKER-USER -j RETURN
         echo "DOCKER-USER chain protected."
+
+        # Apply port-level filtering if script exists
+        SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+        if [ -f "$SCRIPT_DIR/docker-port-filter.sh" ]; then
+            bash "$SCRIPT_DIR/docker-port-filter.sh"
+        elif [ -f /usr/local/bin/docker-port-filter ]; then
+            bash /usr/local/bin/docker-port-filter
+        fi
     fi
 fi
 

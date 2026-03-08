@@ -33,6 +33,7 @@ That's it! The setup script will:
 | Country Blocking | Geographic filtering | Instant block |
 | Port Scan Detection | Honeypot traps | **Permanent ban** |
 | Docker Protection | DOCKER-USER chain rules | Instant block |
+| Docker Port Filter | Only expose needed ports | Port blocked |
 | Rate Limiting | Connection floods | Temp block (24h) |
 | fail2ban | Brute force attacks | Temp block (24h) |
 
@@ -586,6 +587,8 @@ Traffic to Docker containers is filtered through the same blocklists:
 | Country-blocked IPs | **DROP** |
 | Known scanners | **DROP** |
 | Port scan offenders | **DROP** |
+| Allowed ports (80,443,81) | RETURN (allow) |
+| Other ports from external IPs | **DROP** |
 | Everything else | RETURN (allow) |
 
 ### How It Works
@@ -599,7 +602,35 @@ iptables -A DOCKER-USER -m set --match-set whitelist src -j RETURN
 iptables -A DOCKER-USER -m set --match-set country_block src -j DROP
 iptables -A DOCKER-USER -m set --match-set scanners src -j DROP
 iptables -A DOCKER-USER -m set --match-set portscan_blocked src -j DROP
+# Port filtering (added by docker-port-filter.sh):
+iptables -A DOCKER-USER -p tcp -m multiport --dports 80,443,81 --ctstate NEW -j RETURN
+iptables -A DOCKER-USER -p tcp --ctstate NEW ! internal-sources -j DROP
+iptables -A DOCKER-USER -p udp --ctstate NEW ! internal-sources -j DROP
 iptables -A DOCKER-USER -j RETURN
+```
+
+### Docker Port Filter
+
+The `docker-port-filter.sh` script adds port-level access control to Docker containers. Docker bypasses UFW/INPUT chain entirely, so without this, **every published port is accessible from the internet** regardless of your firewall settings.
+
+Configure allowed ports in `docker-port-filter.sh`:
+
+```bash
+ALLOWED_PORTS="80,443,81"  # Only these ports reachable from internet
+```
+
+All other Docker-published ports (Portainer, Zipline, app backends, etc.) remain accessible:
+- Between containers on Docker networks
+- From localhost
+- From private IP ranges (10.x, 172.16-31.x, 192.168.x)
+
+To add or change allowed ports:
+```bash
+# Edit the script
+nano docker-port-filter.sh
+
+# Re-apply
+sudo ./docker-port-filter.sh
 ```
 
 ### Verify Docker Protection
@@ -736,6 +767,7 @@ fail2ban-client reload              # Reload config
 | `rate-limit-iptables.sh` | Setup iptables rate limiting |
 | `log-rate-limiter.sh` | Analyze logs for hammering (cron) |
 | `fail2ban-setup.sh` | Install and configure fail2ban |
+| `docker-port-filter.sh` | Restrict Docker ports accessible from internet |
 | `install-rate-limiting.sh` | Installer for rate limiting only |
 | `show-blocked.sh` | Display all blocked IPs |
 | `check-blocking-status.sh` | Check firewall status |
