@@ -8,9 +8,9 @@ set -e
 # Whitelist: VPN 10.8.* and LAN 192.168.50.*
 # -----------------------------
 
-# Configuration: Add country codes to block (e.g., "cn ru ir kp")
+# Configuration: Add country codes to block (e.g., "cn ru ir kp us")
 # Leave empty to disable country blocking
-BLOCK_COUNTRIES=""
+BLOCK_COUNTRIES="cn ru vn id ir uz bd eg dz by az kp"
 
 # Block Mode:
 # "disabled" - Load lists but don't apply blocking (testing mode)
@@ -237,6 +237,37 @@ else
             iptables -C FORWARD -m set --match-set country_block dst -j DROP 2>/dev/null || \
                 iptables -A FORWARD -m set --match-set country_block dst -j DROP
         fi
+    fi
+
+    # ---------------------------------
+    # DOCKER-USER chain protection
+    # Docker traffic bypasses INPUT, so we must also block in DOCKER-USER
+    # ---------------------------------
+    if iptables -L DOCKER-USER -n &>/dev/null; then
+        echo "Setting up DOCKER-USER chain protection..."
+        # Flush and rebuild to avoid duplicate rules
+        iptables -F DOCKER-USER
+
+        # Allow established connections
+        iptables -A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN
+
+        # Whitelist trusted IPs
+        iptables -A DOCKER-USER -m set --match-set whitelist src -j RETURN
+
+        # Block country IPs
+        if [ -n "$BLOCK_COUNTRIES" ]; then
+            iptables -A DOCKER-USER -m set --match-set country_block src -j DROP
+        fi
+
+        # Block known scanners
+        iptables -A DOCKER-USER -m set --match-set scanners src -j DROP
+
+        # Block portscan-flagged IPs
+        iptables -A DOCKER-USER -m set --match-set portscan_blocked src -j DROP
+
+        # Allow everything else
+        iptables -A DOCKER-USER -j RETURN
+        echo "DOCKER-USER chain protected."
     fi
 fi
 

@@ -6,7 +6,7 @@ Multi-layer IP blocking and intrusion prevention for Linux servers.
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/ipblock.git
+git clone https://github.com/supamanluva/ipblock.git
 cd ipblock
 
 # Run the master setup script
@@ -32,6 +32,7 @@ That's it! The setup script will:
 | Scanner Blocklists | Known malicious IPs | Instant block |
 | Country Blocking | Geographic filtering | Instant block |
 | Port Scan Detection | Honeypot traps | **Permanent ban** |
+| Docker Protection | DOCKER-USER chain rules | Instant block |
 | Rate Limiting | Connection floods | Temp block (24h) |
 | fail2ban | Brute force attacks | Temp block (24h) |
 
@@ -43,9 +44,7 @@ If you prefer to set up components individually:
 
 ### Prerequisites
 
-## Prerequisites
-
-Before running `update-scanner-block.sh`, ensure you have the following installed:
+Before running scripts manually, ensure you have:
 
 1. **ipset** - IP set administration tool
    ```bash
@@ -62,9 +61,9 @@ Before running `update-scanner-block.sh`, ensure you have the following installe
    sudo apt install curl
    ```
 
-## Permissions
+### Permissions
 
-This script must be run with **root privileges** because it:
+Scripts must be run with **root privileges** because they:
 - Creates and modifies ipset tables
 - Modifies iptables firewall rules
 - Flushes existing firewall configurations
@@ -164,6 +163,32 @@ Use ISO 3166-1 alpha-2 country codes (two-letter codes). Common examples:
 2. Creates a separate `country_block` ipset
 3. Adds iptables rules to DROP traffic from/to blocked countries
 4. **Whitelist takes priority** - your VPN/LAN will never be blocked
+
+### Recommended Countries to Block
+
+Based on analysis of real-world port scan and attack data, these countries are the most common sources of malicious traffic targeting servers:
+
+| Code | Country | Attack Share | Common Attack Types |
+|------|---------|-------------|---------------------|
+| `cn` | China | ~17% | Port scanning, brute force, botnets |
+| `ru` | Russia | ~8% | Port scanning, exploit attempts |
+| `vn` | Vietnam | ~5% | SSH brute force, scanning |
+| `id` | Indonesia | ~4% | Brute force, web exploits |
+| `ir` | Iran | ~3% | Scanning, credential stuffing |
+| `uz` | Uzbekistan | ~2% | SSH brute force |
+| `bd` | Bangladesh | ~2% | Scanning, brute force |
+| `eg` | Egypt | ~2% | Scanning, web exploits |
+| `dz` | Algeria | ~1% | Scanning |
+| `by` | Belarus | ~1% | Scanning, exploit attempts |
+| `az` | Azerbaijan | ~1% | Scanning |
+| `kp` | North Korea | <1% | State-sponsored scanning |
+
+**Recommended configuration** (blocks ~45% of malicious traffic):
+```bash
+BLOCK_COUNTRIES="cn ru vn id ir uz bd eg dz by az kp"
+```
+
+> **Note**: The US (~30% of scan traffic) is not recommended for blocking since it hosts most legitimate services (GitHub, CDNs, APIs, etc.).
 
 ### Disable Country Blocking
 
@@ -306,31 +331,205 @@ Real-time protection using iptables modules. No log parsing needed.
 - **Connlimit**: Max 50 concurrent connections per IP
 - **Hashlimit**: Sophisticated rate limiting with burst protection
 
-### Layer 2: Log-Based Rate Limiting
+**Usage**:
+```bash
+sudo ./rate-limit-iptables.sh
+```
 
-Analyzes web server logs to detect and block IPs making excessive requests.
+**Configuration** (edit the script):
+```bash
+MAX_CONNECTIONS_PER_MINUTE=30    # Adjust based on your traffic
+BURST_LIMIT=10                   # Allow initial burst
+PROTECTED_PORTS="22,80,443,8080" # Ports to protect (empty = all)
+```
+
+**Monitor**:
+```bash
+sudo dmesg -w | grep -E 'RATE-LIMITED|CONNLIMIT|HASHLIMIT'
+cat /proc/net/xt_recent/RATE_LIMIT
+```
+
+### Layer 2: Log-Based Rate Limiter (Cron-Based)
+
+Analyzes access logs every 5 minutes and uses a **3-strike system** before blocking.
 
 **Script**: `log-rate-limiter.sh`
 
-**Features**:
-- Monitors nginx/Apache access logs
-- 3-strike system before blocking
-- Configurable thresholds (default: 100 requests/minute)
-- 24-hour blocks via `rate_limited` ipset
+**Detection Methods**:
+- High request rate (>200 requests/5 min)
+- 404 scanning (>10 not-found requests/min)
+- Suspicious path access (wp-admin, .env, .git, etc.)
+- Auth failures (SSH brute force)
+- Repeated blocked attempts in kernel log
+
+**Strike System**:
+1. First offense → Strike 1 (logged)
+2. Second offense → Strike 2 (logged)
+3. Third offense → **24-hour IP ban**
+
+**Usage**:
+```bash
+# Manual run
+sudo ./log-rate-limiter.sh
+
+# Install with cron (runs every 5 minutes)
+sudo cp log-rate-limiter.sh /usr/local/bin/log-rate-limiter
+echo "*/5 * * * * root /usr/local/bin/log-rate-limiter >> /var/log/rate-limiter.log 2>&1" | sudo tee /etc/cron.d/log-rate-limiter
+```
+
+**Configuration** (edit the script):
+```bash
+REQUESTS_PER_MINUTE=60          # Max requests per minute
+REQUESTS_PER_5MIN=200           # Max requests per 5 minutes
+BLOCK_DURATION=86400            # Block duration (24 hours)
+ERROR_THRESHOLD=20              # Max errors per minute
+REPEATED_404_THRESHOLD=10       # Max 404s per minute
+```
+
+**View offenders**:
+```bash
+cat /var/lib/ipblock/offenders.log
+cat /var/lib/ipblock/strikes.db
+```
 
 ### Layer 3: fail2ban Integration
 
-Advanced protection with regex-based log analysis.
+Industry-standard intrusion prevention that monitors logs for malicious patterns.
 
 **Script**: `fail2ban-setup.sh`
+
+**Features**:
+- SSH brute force protection (3 attempts = 24h ban)
+- HTTP authentication failures
+- Bot/scanner detection
+- Recidive detection (repeat offenders get week-long bans)
+- Uses ipset for efficient blocking
+
+**Custom Jails Included**:
+| Jail | Description | Max Retries | Ban Time |
+|------|-------------|-------------|----------|
+| `sshd` | SSH failures | 3 | 24 hours |
+| `sshd-aggressive` | SSH repeat offenders | 1 | 7 days |
+| `http-hammer` | HTTP request flood | 100/min | 24 hours |
+| `http-scanner` | Vulnerability scanning | 5 | 24 hours |
+| `recidive` | Repeat offenders | 3 bans | 7 days |
+
+**Usage**:
+```bash
+sudo ./fail2ban-setup.sh
+```
+
+**Manage fail2ban**:
+```bash
+fail2ban-client status              # Show all jails
+fail2ban-client status sshd         # Specific jail status
+fail2ban-client set sshd banip IP   # Manually ban
+fail2ban-client set sshd unbanip IP # Manually unban
+fail2ban-client reload              # Reload config
+```
+
+### View All Blocks
+
+**Script**: `show-blocked.sh`
+
+Shows all currently blocked IPs across all ipsets with remaining ban time:
+
+```bash
+sudo ./show-blocked.sh
+```
+
+Output includes:
+- Scanner blocklist entries
+- Country blocks
+- Rate-limited IPs (with expiry time)
+- fail2ban blocks (with expiry time)
+- Recent block events
+- Statistics
+
+### Manual IP Management
+
+**Block an IP for 24 hours**:
+```bash
+sudo ipset add rate_limited 1.2.3.4
+```
+
+**Block an IP permanently** (until next blocklist update):
+```bash
+sudo ipset add scanners 1.2.3.4
+```
+
+**Unblock an IP**:
+```bash
+sudo ipset del rate_limited 1.2.3.4
+sudo ipset del fail2ban 1.2.3.4
+```
+
+**Check if IP is blocked**:
+```bash
+sudo ipset test rate_limited 1.2.3.4
+sudo ipset test scanners 1.2.3.4
+```
+
+### ipset Summary
+
+| ipset Name | Purpose | Timeout |
+|------------|---------|---------|
+| `scanners` | FireHOL + static blocklists | Permanent |
+| `country_block` | Country-based blocking | Permanent |
+| `rate_limited` | Log-based rate limiter | 24 hours |
+| `fail2ban` | fail2ban bans | 24 hours |
+| `whitelist` | Never blocked IPs | Permanent |
+
+### Monitoring
+
+**Real-time block monitoring**:
+```bash
+sudo dmesg -w | grep -E 'SCANNER-BLOCKED|RATE-LIMITED|FAIL2BAN-BLOCKED'
+```
+
+**Rate limiter logs**:
+```bash
+sudo tail -f /var/log/rate-limiter.log
+```
+
+**fail2ban logs**:
+```bash
+sudo tail -f /var/log/fail2ban.log
+```
+
+### Recommended Configuration
+
+For a typical web server:
+
+1. **Run the master installer**:
+   ```bash
+   sudo ./install-rate-limiting.sh
+   ```
+
+2. **Tune thresholds** based on your traffic:
+   - Low-traffic site: Lower thresholds (20 req/min)
+   - High-traffic site: Higher thresholds (100+ req/min)
+
+3. **Add to cron** for regular updates:
+   ```bash
+   # Update blocklists weekly
+   0 3 * * 0 /usr/local/bin/update-scanner-blocklist.sh >> /var/log/scanner-block.log 2>&1
+   
+   # Rate limiter runs every 5 minutes (installed automatically)
+   ```
+
+4. **Whitelist your monitoring/health check IPs**:
+   ```bash
+   sudo ipset add whitelist YOUR_MONITORING_IP
+   ```
 
 ---
 
 ## Port Scan Detection
 
-Automatically detects and **permanently blocks** IPs performing port scans against your server.
+Automatically detect and permanently block IPs that port scan your server.
 
-### Setup
+### Quick Install
 
 ```bash
 sudo ./portscan-detect.sh
@@ -338,89 +537,180 @@ sudo ./portscan-detect.sh
 
 ### Detection Methods
 
-1. **PSD (Port Scan Detection) Module** - Detects rapid port probing
-2. **Recent Module** - Tracks connection attempts, blocks after threshold
-3. **Honeypot Ports** - Instant permanent ban for connecting to:
-   - 23 (Telnet), 135/137-139/445 (Windows/SMB)
-   - 1433/1434 (MSSQL), 3306 (MySQL), 5432 (PostgreSQL)
-   - 3389 (RDP), 5900 (VNC), 6379 (Redis)
-   - 11211 (Memcached), 27017 (MongoDB)
-4. **Stealth Scan Detection** - NULL, XMAS, SYN/FIN packets
+| Method | Description | Action |
+|--------|-------------|--------|
+| **Stealth Scans** | NULL, XMAS, SYN/FIN scans | Logged & dropped |
+| **Honeypot Ports** | Connections to unused trap ports | **Instant permanent block** |
+| **Rapid Scanning** | 5+ ports in 60 seconds | Logged & dropped |
+| **PSD Module** | Kernel-level scan detection | Logged & dropped |
 
-### Log Analyzer
+### Honeypot Ports
 
-Runs via cron to catch patterns the iptables rules miss:
+Any connection to these ports results in an **instant permanent ban**:
 
+| Port | Service | Port | Service |
+|------|---------|------|---------|
+| 23 | Telnet | 3389 | RDP |
+| 135-139 | NetBIOS | 5432 | PostgreSQL |
+| 445 | SMB | 5900 | VNC |
+| 1433-1434 | MS-SQL | 6379 | Redis |
+| 3306 | MySQL | 27017 | MongoDB |
+
+**⚠️ Remove any ports you actually use!** Edit line 98 in `portscan-detect.sh`:
 ```bash
-echo "*/10 * * * * root /path/to/portscan-log-analyzer.sh" | sudo tee /etc/cron.d/portscan-analyzer
+HONEYPOT_PORTS="23,135,137,138,139,445,1433,1434,3306,3389,5432,5900,6379,11211,27017"
 ```
 
-### View Port Scan Blocks
+### Persistence Across Reboots
+
+Blocked IPs are saved hourly and restored on reboot via `/etc/cron.d/ipblock-persist`:
+- Saves to `/etc/ipblock/portscan_blocked.save`
+- Restores rules and blocked IPs on boot
+
+---
+
+## Docker Protection (DOCKER-USER Chain)
+
+Docker published ports bypass the standard `INPUT` chain entirely — traffic goes through `FORWARD` → `DOCKER-USER` instead. This means standard iptables/ipset rules in the INPUT chain **do not protect** Docker containers with published ports.
+
+The `update-scanner-block.sh` script automatically adds blocking rules to the `DOCKER-USER` chain, ensuring all ipset blocklists also protect Docker services.
+
+### What's Protected
+
+Traffic to Docker containers is filtered through the same blocklists:
+
+| Rule | Action |
+|------|--------|
+| Established connections | RETURN (allow) |
+| Whitelist IPs | RETURN (allow) |
+| Country-blocked IPs | **DROP** |
+| Known scanners | **DROP** |
+| Port scan offenders | **DROP** |
+| Everything else | RETURN (allow) |
+
+### How It Works
+
+The script flushes and rebuilds `DOCKER-USER` on each run:
 
 ```bash
-# All permanently blocked scanners
-sudo ipset list portscan_blocked
-
-# Recent detections
-sudo dmesg | grep -E 'PORTSCAN|HONEYPOT|STEALTH' | tail -20
+# Rules are applied in order (first match wins)
+iptables -A DOCKER-USER -m state --state ESTABLISHED,RELATED -j RETURN
+iptables -A DOCKER-USER -m set --match-set whitelist src -j RETURN
+iptables -A DOCKER-USER -m set --match-set country_block src -j DROP
+iptables -A DOCKER-USER -m set --match-set scanners src -j DROP
+iptables -A DOCKER-USER -m set --match-set portscan_blocked src -j DROP
+iptables -A DOCKER-USER -j RETURN
 ```
+
+### Verify Docker Protection
+
+```bash
+# Check DOCKER-USER rules
+sudo iptables -L DOCKER-USER -v -n
+
+# See blocked packets (counters > 0 means it's working)
+sudo iptables -L DOCKER-USER -v -n | grep DROP
+```
+
+> **Note**: Docker must be running for the `DOCKER-USER` chain to exist. The script skips Docker protection if the chain is not found.
 
 ---
 
 ## Quick Command Reference
 
-### View All Blocked IPs
+### View Blocked IPs
 
 ```bash
-# Show everything with the nice script
+# Show all blocks with summary
 sudo ./show-blocked.sh
 
-# Or manually check each ipset
-sudo ipset list scanners          # FireHOL blocklists
-sudo ipset list country_block     # Country blocks
-sudo ipset list portscan_blocked  # Port scanners (permanent)
-sudo ipset list rate_limited      # HTTP hammering (24h)
-sudo ipset list fail2ban          # Brute force (24h)
+# List specific ipsets
+sudo ipset list scanners           # FireHOL blocklist
+sudo ipset list country_block      # Country blocks
+sudo ipset list rate_limited       # Rate limited (24h)
+sudo ipset list fail2ban           # fail2ban blocks
+sudo ipset list portscan_blocked   # Port scanners (permanent)
+sudo ipset list whitelist          # Whitelisted IPs
 ```
 
-### Block/Unblock IPs Manually
+### Block/Unblock IPs
 
 ```bash
-# Add IP to scanner block (permanent)
-sudo ipset add scanners 1.2.3.4
+# Block an IP (24 hours)
+sudo ipset add rate_limited 1.2.3.4
 
-# Add IP to port scan block (permanent)
+# Block a port scanner (permanent)
 sudo ipset add portscan_blocked 1.2.3.4
 
-# Remove an IP
-sudo ipset del scanners 1.2.3.4
+# Block permanently in scanner list
+sudo ipset add scanners 1.2.3.4
+
+# Unblock an IP
+sudo ipset del rate_limited 1.2.3.4
 sudo ipset del portscan_blocked 1.2.3.4
+sudo ipset del scanners 1.2.3.4
 
 # Whitelist an IP (never blocked)
 sudo ipset add whitelist 1.2.3.4
 ```
 
-### Check If IP Is Blocked
+### Check if IP is Blocked
 
 ```bash
-# Test specific IP
 sudo ipset test scanners 1.2.3.4
 sudo ipset test portscan_blocked 1.2.3.4
-
-# Search all ipsets for an IP
-for set in scanners country_block portscan_blocked rate_limited fail2ban whitelist; do
-  sudo ipset test $set 1.2.3.4 2>/dev/null && echo "Found in: $set"
-done
+sudo ipset test rate_limited 1.2.3.4
 ```
 
-### Monitor Live Blocks
+### Real-Time Monitoring
 
 ```bash
-# Watch for new blocks
-sudo dmesg -w | grep -E 'SCANNER-BLOCK|PORTSCAN|HONEYPOT|RATE-LIMITED'
+# All blocked traffic
+sudo dmesg -w | grep -E 'BLOCKED|SCAN|LIMIT|HONEYPOT'
 
-# Recent iptables activity
-sudo iptables -L -n -v | head -50
+# Scanner blocks only
+sudo dmesg -w | grep 'SCANNER-BLOCKED'
+
+# Port scan detections
+sudo dmesg -w | grep -E 'PORTSCAN|HONEYPOT'
+
+# Rate limiting
+sudo dmesg -w | grep -E 'RATE-LIMITED|HASHLIMIT|CONNLIMIT'
+```
+
+### View Logs
+
+```bash
+# Kernel/firewall logs
+sudo dmesg | grep -E 'BLOCKED|SCAN' | tail -50
+
+# Rate limiter log
+sudo tail -f /var/log/rate-limiter.log
+
+# Port scan log
+sudo tail -f /var/log/portscan.log
+
+# fail2ban log
+sudo tail -f /var/log/fail2ban.log
+
+# Offender logs
+cat /var/lib/ipblock/offenders.log
+cat /var/lib/ipblock/portscan_offenders.log
+```
+
+### Statistics
+
+```bash
+# View iptables packet counts (INPUT chain)
+sudo iptables -L INPUT -v -n | grep -E 'scanners|rate_limited|fail2ban|portscan'
+
+# View Docker protection packet counts (DOCKER-USER chain)
+sudo iptables -L DOCKER-USER -v -n | grep -E 'scanners|country_block|portscan'
+
+# Count entries in each ipset
+for set in scanners country_block rate_limited fail2ban portscan_blocked whitelist; do
+  echo "$set: $(sudo ipset list $set 2>/dev/null | grep -c '^[0-9]' || echo 0) entries"
+done
 ```
 
 ### fail2ban Commands
@@ -430,6 +720,7 @@ fail2ban-client status              # All jails
 fail2ban-client status sshd         # SSH jail
 fail2ban-client set sshd banip IP   # Manual ban
 fail2ban-client set sshd unbanip IP # Manual unban
+fail2ban-client reload              # Reload config
 ```
 
 ---
@@ -448,8 +739,8 @@ fail2ban-client set sshd unbanip IP # Manual unban
 | `install-rate-limiting.sh` | Installer for rate limiting only |
 | `show-blocked.sh` | Display all blocked IPs |
 | `check-blocking-status.sh` | Check firewall status |
-| `test-country-block.sh` | Test country blocking |
 | `verify-setup.sh` | Verify setup is complete |
+| `test-country-block.sh` | Test country blocking |
 
 ---
 
@@ -468,46 +759,16 @@ fail2ban-client set sshd unbanip IP # Manual unban
 
 ## Cron Jobs
 
+Located in `/etc/cron.d/`:
+
 ```bash
-# /etc/cron.d/ipblock-persist - Persistence across reboots
+# /etc/cron.d/ipblock-persist
 0 * * * * root ipset save portscan_blocked > /etc/ipblock/portscan_blocked.save
-@reboot root sleep 10 && /home/rae/ipblock/portscan-detect.sh
+@reboot root sleep 10 && /path/to/portscan-detect.sh
 
-# Recommended: weekly blocklist update
-0 3 * * 0 /home/rae/ipblock/update-scanner-block.sh >> /var/log/scanner-block.log 2>&1
-```
+# /etc/cron.d/log-rate-limiter  
+*/5 * * * * root /usr/local/bin/log-rate-limiter >> /var/log/rate-limiter.log
 
----
-
-## Verify Setup
-
-After installation, run the verification script to ensure everything is configured correctly:
-
-```bash
-sudo ./verify-setup.sh
-```
-
-This checks:
-- ✓ Required tools (ipset, iptables, curl)
-- ✓ All ipset tables exist and have entries
-- ✓ iptables rules are active
-- ✓ Cron jobs for persistence
-- ✓ Recent blocking activity
-- ✓ Quick stats summary
-
-Example output:
-```
-═══ ipset Tables ═══
-  ✓ scanners exists (45000 entries)
-  ✓ portscan_blocked exists - permanent (12 entries)
-  ✓ whitelist exists (5 entries)
-
-═══ Quick Stats ═══
-  Total IPs/ranges blocked: 45017
-  
-  Passed:  15
-  Warnings: 2
-  Failed:  0
-
-⚠ Setup is functional with some optional features missing.
+# Recommended: weekly blocklist update (add to root crontab)
+0 3 * * 0 /path/to/update-scanner-block.sh >> /var/log/scanner-block.log 2>&1
 ```
