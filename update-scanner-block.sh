@@ -1,4 +1,5 @@
 #!/bin/bash
+export PATH="/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
 set -e
 
 # -----------------------------
@@ -180,6 +181,10 @@ fi
 echo "Cleaning entries..."
 grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}(/[0-9]{1,2})?' "$TMP" \
     | sort -u > "${TMP}.clean"
+
+# Remove private/Docker network ranges (RFC 1918) that break container networking
+grep -v -E "^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)" "${TMP}.clean" > "${TMP}.filtered" && mv "${TMP}.filtered" "${TMP}.clean"
+echo "Filtered out RFC 1918 private ranges (Docker protection)."
 
 # -----------------------------
 # Flush old scanners ipset
